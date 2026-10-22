@@ -21,6 +21,10 @@ Research code, pre-publication. The library is stable and tested; the headline
 result is not yet strong enough for a main-track submission. Numbers below are
 reproducible with `python scripts/smoke_test.py`.
 
+For the literature this builds on, the baselines it is measured against, the
+datasets it needs, and the remaining experiment schedule, see
+[`docs/PLAN.md`](docs/PLAN.md).
+
 ## Method
 
 Write the frozen model's logits on a cloud `x` as
