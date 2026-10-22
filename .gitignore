@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Never commit credentials.
+PAT
+*.pem
+.env
+
+# Data and artefacts
+/data/
+runs/
+outputs/
+*.pt
+*.pth
+*.npy
+*.npz
