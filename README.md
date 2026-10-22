@@ -65,24 +65,27 @@ every test cloud to the source density before feeding it to the model — loses
 statistics the classifier depends on, so the cure damages the very signal it is
 meant to protect. The correction has to happen in logit space.
 
-**The nuisance is only partly identifiable.** The paired design excites a small
-number of directions in descriptor space: the design matrix has singular values
-decaying from 897 to 0.3, a condition number near 3e3. The fit is close to exact
-on the differences (2.7% residual) but the recovered coefficient does not
-reproduce the true density term in absolute space (`||Phi B - f|| / ||f|| =
-0.63`, per-class scale error 1.1 to 1.9x). The estimator is trustworthy on the
-subspace the intervention excites and over-corrects outside it.
+**The nuisance is only partly identifiable.** Reproduce with
+`scripts/diagnose_identifiability.py`. The paired design reaches rank 19 of 21
+basis directions with a condition number of 230 (decoupled) to 330 (hard) on
+the identified subspace. The fit explains 88% of the pair variance, yet the
+recovered coefficient is 66 to 72% wrong in absolute space
+(`||Phi B - f|| / ||f|| = 0.66`), under-scaling by about 30% per class, with a
+per-sample cosine of 0.48 to 0.55. Error on the differences does not imply a
+correct coefficient away from the subspace the intervention explored.
 
-**Ridge strength carries the whole trade-off.** Truncating to the top *k*
-singular directions moves accuracy monotonically between "do nothing" and
-"over-correct", with no free lunch: at k=4 the no-shift regime falls to 0.91
-while the hard regime rises to 0.80.
+**Truncation is the fix, and it is small.** Restricting the correction to the
+*top two* directions of the pair Gram matrix is the only setting that helps
+(0.910 against a 0.895 baseline on the decoupled stream); from k=3 onward
+accuracy falls monotonically, reaching 0.850 when the full coefficient is used.
+So the honest claim is not "we remove the bias" but "we remove the part of it
+that the data identifies".
 
-**What it does buy.** With a fixed ridge of 1e-2, the correction is neutral in
-the mild regime, gains 3 to 5 points when density is decoupled from class and
-the decoupling is severe, and is harmful when the entire density marginal
-shifts. The last row is not a bug to be tuned away; it is the regime where the
-assumption behind the estimator is false.
+**What it buys.** With truncation the correction is near-neutral in the mild
+regime, gains 1 to 2 points when density is decoupled from class, and loses 3
+to 9 points when the entire density marginal shifts. The last case is not a bug
+to be tuned away; it is the regime where the assumption behind the estimator is
+false.
 
 ### Synthetic harness
 
@@ -94,11 +97,17 @@ assumption behind the estimator is false.
 | entropy_bias | 1.000 | 0.933 | 0.853 | 0.753 |
 | global_bias | 1.000 | 0.927 | 0.853 | 0.753 |
 | dsc | 0.933 | 0.920 | 0.887 | 0.613 |
+| dsc_top2 | 0.987 | 0.933 | 0.873 | 0.720 |
 
 | adapter | none | decoupled | decoupled_hard | global |
 |---|---|---|---|---|
 | source_only | 1.000 | 0.940 | 0.907 | 0.807 |
 | dsc | 0.973 | 0.893 | 0.960 | 0.520 |
+| dsc_top2 | 1.000 | 0.933 | 0.920 | 0.713 |
+
+`dsc_top2` is the recommended configuration: it gives up most of `dsc`'s gain on
+the hard regime in exchange for never falling far below the frozen baseline
+elsewhere.
 
 `decoupled` draws density independently of class while preserving the marginal;
 `decoupled_hard` widens that gap; `global` shifts the whole marginal, which is
@@ -126,7 +135,7 @@ from denshift import DensityBiasModel, density_descriptor, stratified_subsample
 
 model = DensityBiasModel(n_classes=10, warmup=32)
 for cloud, logits in stream:
-    sparse = stratified_subsample(cloud, ratio=0.5, n_strata=4, rng=rng)
+    sparse = stratified_subsample(cloud, ratio=0.5, bins=4, rng=rng)
     model.observe_pair(
         density_descriptor(cloud), density_descriptor(sparse),
         logits, frozen(sparse),
@@ -137,15 +146,41 @@ for cloud, logits in stream:
 ## Layout
 
 ```
-denshift/geometry.py     density descriptor, subsampling
-denshift/streaming.py    running standardiser, streaming quantiles
-denshift/calibrate.py    the estimator
-denshift/changepoint.py  residual-ratio shock detector, descriptor detector
-denshift/adapter.py      adapters: source-only, entropy, global bias, DSC ablations
-denshift/blackbox.py     frozen-model wrapper that refuses gradients
-denshift/metrics.py      accuracy, mCE, mRR, ECE
-denshift/synthetic.py    controlled testbed and benchmark driver
+denshift/geometry.py          density descriptor, subsampling
+denshift/streaming.py         running standardiser, streaming quantiles
+denshift/calibrate.py         the estimator
+denshift/changepoint.py       residual-ratio shock detector, descriptor detector
+denshift/adapter.py           adapters: source-only, entropy, global bias, DSC ablations
+denshift/blackbox.py          frozen-model wrapper that freezes and audits
+denshift/metrics.py           accuracy, mCE, mRR, ECE
+denshift/synthetic.py         controlled testbed and benchmark driver
+denshift/backends/dgcnn.py    DGCNN matching the PointCloud-C checkpoints
+denshift/data/modelnet_c.py   ModelNet-C split discovery and loading
+scripts/                      smoke test, identifiability diagnostic, ModelNet-C eval
 ```
+
+## Running on ModelNet-C
+
+Download the merged release from `ldkong1205/PointCloud-C` and point the eval
+script at it. The DGCNN weights from that repository load directly:
+
+```
+python scripts/eval_modelnet_c.py \
+    --root data/ModelNet40-C \
+    --checkpoint weights/dgcnn_modelnet40.t7 \
+    --corruptions add_global jitter scale rotation \
+    --severity 1 2 3 4 5 \
+    --adapter dsc_top2 \
+    --n-samples 200
+```
+
+The script prints accuracy per split and mCE against the clean split. Budget
+roughly a second per cloud on CPU.
+
+Two cautions. ModelNet-C and Robo3D normalise mCE differently, so never place
+their numbers in the same table. Robo3D's baseline protocol also forbids
+test-time adaptation, so its published numbers are not comparable to anything
+here without re-running the baseline.
 
 ## Findings worth keeping
 

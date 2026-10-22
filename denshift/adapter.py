@@ -97,6 +97,7 @@ class _DensityAdapter(Adapter):
         warmup: int = 32,
         second_view_ratio: float = 0.5,
         update_every: int = 1,
+        max_directions: int | None = None,
         use_changepoint: bool = True,
         changepoint_threshold: float = 2.0,
         seed: int = 0,
@@ -111,6 +112,7 @@ class _DensityAdapter(Adapter):
             ridge=ridge,
             warmup=warmup,
             use_buckets=n_buckets > 1,
+            max_directions=max_directions,
         )
         self.detector = ShockDetector(ratio=changepoint_threshold)
         self.use_changepoint = bool(use_changepoint)
@@ -223,6 +225,22 @@ class DSC(_DensityAdapter):
     name = "dsc"
 
 
+class DSCTruncated(_DensityAdapter):
+    """Denshift restricted to the two directions the pairs excite most.
+
+    The correction is identified only on the subspace the dense/sparse
+    intervention actually explores; projecting the coefficient onto that
+    subspace stops it from over-correcting elsewhere.  See
+    ``scripts/diagnose_identifiability.py``.
+    """
+
+    name = "dsc_top2"
+
+    def __init__(self, n_classes: int, **kw) -> None:
+        kw.setdefault("max_directions", 2)
+        super().__init__(n_classes, **kw)
+
+
 ADAPTERS = {
     "source_only": SourceOnly,
     "entropy_bias": EntropyBias,
@@ -230,6 +248,7 @@ ADAPTERS = {
     "dsc_no_bucket": DSCNoBucket,
     "dsc_no_drift": DSCNoDrift,
     "dsc": DSC,
+    "dsc_top2": DSCTruncated,
 }
 
 

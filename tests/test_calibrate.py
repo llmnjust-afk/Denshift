@@ -17,7 +17,9 @@ def test_estimator_recovers_a_known_density_response() -> None:
 
     # warmup=0 freezes the descriptor scaler at its identity state, so the basis
     # is fixed throughout and recovery can be checked exactly.
-    model = DensityBiasModel(n_classes=n_classes, warmup=0, ridge=1e-6)
+    model = DensityBiasModel(
+        n_classes=n_classes, warmup=0, ridge=1e-6, use_buckets=False
+    )
     truth = rng.normal(0.0, 1.0, size=(model.n_basis, n_classes))
     for _ in range(n_obs):
         d_dense = rng.normal(0.0, 1.0, size=6)

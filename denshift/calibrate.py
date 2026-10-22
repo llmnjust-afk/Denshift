@@ -55,13 +55,14 @@ class DensityBiasModel:
         n_classes: int,
         n_features: int = 6,
         n_buckets: int = 8,
-        ridge: float = 0.01,
-        forgetting: float = 1.0,
-        alpha: float = 1.0,
+        ridge: float = 0.05,
+        forgetting: float = 0.995,
+        alpha: float = 0.5,
         warmup: int = 32,
         max_bias_norm: float = 0.0,
         feature_subset: list[int] | None = None,
-        use_buckets: bool = False,
+        use_buckets: bool = True,
+        max_directions: int | None = None,
     ) -> None:
         self.n_classes = int(n_classes)
         self.n_features = int(n_features)
@@ -72,6 +73,7 @@ class DensityBiasModel:
         self.alpha = float(alpha)
         self.warmup = int(warmup)
         self.use_buckets = bool(use_buckets)
+        self.max_directions = None if max_directions is None else int(max_directions)
         self.feature_subset = (
             list(range(n_features)) if feature_subset is None else list(feature_subset)
         )
@@ -169,7 +171,23 @@ class DensityBiasModel:
             scale = float(np.trace(self.A)) / max(self.n_basis, 1)
             reg = self.ridge * max(scale, 1e-8) * np.eye(self.n_basis)
             self._B = np.linalg.solve(self.A + reg, self.C)
+            if self.max_directions is not None:
+                self._B = self._truncate(self._B, self.max_directions)
         return self._B
+
+    def _truncate(self, coef: np.ndarray, k: int) -> np.ndarray:
+        """Restrict a coefficient to the directions the pairs actually excite.
+
+        ``A`` is the Gram matrix of the pair differences, so its eigenvectors
+        are the directions the intervention explored and its eigenvalues say
+        how hard it pushed along each.  Coefficients on the remaining
+        directions are set by the ridge, not by data, and applying them away
+        from the observed subspace over-corrects.
+        """
+        values, vectors = np.linalg.eigh(self.A)
+        order = np.argsort(values)[::-1][: max(int(k), 1)]
+        basis = vectors[:, order]
+        return basis @ (basis.T @ coef)
 
     def predict_delta(self, d_a: np.ndarray, d_b: np.ndarray) -> np.ndarray:
         """Predicted logit difference between two density views."""
